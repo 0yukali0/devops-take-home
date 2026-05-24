@@ -1,0 +1,32 @@
+{
+  "name": "ems-edge-simulator",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/index.ts src/collector.ts src/seed.ts --bundle --platform=node --outdir=dist --format=cjs --sourcemap",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts | pino-pretty -c -C -L debug",
+    "dev:collector": "tsx watch src/collector.ts | pino-pretty -c -C -L debug",
+    "seed": "tsx src/seed.ts",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "@next/env": "^15.1.6",
+    "hono": "^4.6.20",
+    "mongodb": "^6.10.0",
+    "pg": "^8.13.0",
+    "pino": "^9.5.0",
+    "redis": "^4.7.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/pg": "^8.11.10",
+    "esbuild": "^0.24.2",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.7.1",
+    "typescript": "^5.8.2"
+  },
+  "packageManager": "pnpm@9.15.4"
+}

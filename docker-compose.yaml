@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/ems
+      - PG_URI=postgresql://postgres:postgres@postgres:5432/ems
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongo
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  collector:
+    build: .
+    command: ["node", "dist/collector.js"]
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/ems
+      - COLLECT_INTERVAL_MS=10000
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    command: mongod --wiredTigerCacheSizeGB 4
+    # no volume — data is lost on restart
+    # no auth — anyone can connect
+    # cache set to 4GB — way too high for an 8GB host
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ems
+    # no volume — data is lost on restart
+    # using default shared_buffers (128MB)
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # no volume — data is lost on restart
+    restart: unless-stopped
