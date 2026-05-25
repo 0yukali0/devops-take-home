@@ -9,3 +9,6 @@ dependencies:
   - name: kube-prometheus-stack
     version: "85.3.3"
     repository: oci://ghcr.io/prometheus-community/charts
+  - name: tempo
+    version: "2.1.2"
+    repository: https://grafana-community.github.io/helm-charts

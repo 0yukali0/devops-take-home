@@ -11,6 +11,37 @@ kube-prometheus-stack:
     enabled: true
     persistence:
       enabled: false
+    additionalDataSources:
+      - name: Tempo
+        type: tempo
+        # URL uses the Helm release name (metric-dashboard) + subchart name (tempo)
+        url: http://metric-dashboard-tempo.monitoring.svc.cluster.local:3200
+        access: proxy
+        jsonData:
+          httpMethod: GET
 
   alertmanager:
     enabled: true
+
+# Tempo tracing backend (grafana-community/tempo chart)
+# NodePort 30317 (gRPC) and 30318 (HTTP) are exposed via a separate Service
+# in charts/templates/tempo-otlp-nodeport.yaml
+tempo:
+  tempo:
+    retention: 24h
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+          http:
+            endpoint: "0.0.0.0:4318"
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+  persistence:
+    enabled: false

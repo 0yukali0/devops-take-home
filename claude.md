@@ -1,0 +1,1 @@
+1. 使用kind驗證helm完畢後，使用make devbox-stop清除環境
