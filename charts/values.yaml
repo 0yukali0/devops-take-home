@@ -24,8 +24,6 @@ kube-prometheus-stack:
     enabled: true
 
 # Tempo tracing backend (grafana-community/tempo chart)
-# NodePort 30317 (gRPC) and 30318 (HTTP) are exposed via a separate Service
-# in charts/templates/tempo-otlp-nodeport.yaml
 tempo:
   tempo:
     retention: 24h
@@ -45,3 +43,43 @@ tempo:
           path: /var/tempo/wal
   persistence:
     enabled: false
+
+# Grafana Alloy — OTLP trace collector pipeline
+# NodePort 30317 (gRPC) and 30318 (HTTP) are exposed via charts/templates/alloy-otlp-nodeport.yaml
+# Override cluster label at install time: --set alloy.clusterName=<env>
+alloy:
+  clusterName: "default"
+  alloy:
+    configMap:
+      content: |
+        otelcol.receiver.otlp "default" {
+          grpc {
+            endpoint = "0.0.0.0:4317"
+          }
+          http {
+            endpoint = "0.0.0.0:4318"
+          }
+          output {
+            traces = [otelcol.processor.transform.add_cluster.input]
+          }
+        }
+
+        otelcol.processor.transform "add_cluster" {
+          error_mode = "ignore"
+          trace_statements {
+            context    = "resource"
+            statements = ["set(attributes[\"cluster\"], \"{{ .Values.clusterName }}\")"]
+          }
+          output {
+            traces = [otelcol.exporter.otlp.tempo.input]
+          }
+        }
+
+        otelcol.exporter.otlp "tempo" {
+          client {
+            endpoint = "{{ .Release.Name }}-tempo.{{ .Release.Namespace }}.svc.cluster.local:4317"
+            tls {
+              insecure = true
+            }
+          }
+        }

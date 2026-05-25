@@ -42,12 +42,19 @@
 - **THEN** only one Grafana Deployment SHALL exist in the monitoring namespace (the one from kube-prometheus-stack)
 
 ### Requirement: Tempo OTLP ports are exposed via NodePort
-`charts/values.yaml` SHALL configure a NodePort Service for Tempo that maps gRPC port 4317 to NodePort 30317 and HTTP port 4318 to NodePort 30318.
+The NodePort Service for OTLP SHALL now target Alloy (not Tempo directly), mapping gRPC port 4317 to NodePort 30317 and HTTP port 4318 to NodePort 30318 on Alloy's pods.
 
-#### Scenario: OTLP gRPC reachable on NodePort
+#### Scenario: OTLP gRPC on NodePort 30317 routes through Alloy
 - **WHEN** an application on the host sends OTLP/gRPC traces to `localhost:30317`
-- **THEN** Tempo SHALL receive and store those spans
+- **THEN** the traffic SHALL be received by Alloy (not Tempo directly), and Alloy SHALL forward the enriched trace to Tempo
 
-#### Scenario: OTLP HTTP reachable on NodePort
+#### Scenario: OTLP HTTP on NodePort 30318 routes through Alloy
 - **WHEN** an application on the host sends OTLP/HTTP traces to `localhost:30318`
-- **THEN** Tempo SHALL receive and store those spans
+- **THEN** the traffic SHALL be received by Alloy (not Tempo directly), and Alloy SHALL forward the enriched trace to Tempo
+
+### Requirement: Tempo OTLP receiver accepts connections from Alloy in-cluster
+`charts/values.yaml` SHALL configure Tempo's OTLP gRPC receiver to accept connections on port 4317, reachable by Alloy within the cluster namespace.
+
+#### Scenario: Alloy can reach Tempo OTLP gRPC endpoint in-cluster
+- **WHEN** Alloy forwards a trace to Tempo's cluster-internal gRPC endpoint on port 4317
+- **THEN** Tempo SHALL accept and store the spans without error

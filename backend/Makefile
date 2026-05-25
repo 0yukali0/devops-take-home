@@ -1,6 +1,6 @@
 .PHONY: image
 image:
-	docker build -t node:dev .
+	docker build -t beackend:dev .
 
 .PHONY: dev-start
 dev-start: dev-stop
