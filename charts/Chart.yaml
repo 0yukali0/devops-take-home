@@ -1,0 +1,11 @@
+apiVersion: v2
+name: charts
+description: Observability umbrella chart for the EMS devbox environment
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: kube-prometheus-stack
+    version: "85.3.3"
+    repository: oci://ghcr.io/prometheus-community/charts

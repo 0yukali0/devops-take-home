@@ -1,0 +1,16 @@
+kube-prometheus-stack:
+  prometheusOperator:
+    enabled: true
+
+  prometheus:
+    enabled: true
+    prometheusSpec:
+      storageSpec: {}
+
+  grafana:
+    enabled: true
+    persistence:
+      enabled: false
+
+  alertmanager:
+    enabled: true
