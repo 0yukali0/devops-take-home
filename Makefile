@@ -1,6 +1,12 @@
 .PHONY: image
+VERSION ?= dev
 image:
-	make -C backend image
+	make -C backend image VERSION=$(VERSION)
+
+.PHONY: lint
+lint:
+	make -C charts lint
+	make -C backend lint
 
 .PHONY: dev-start
 dev-start:
@@ -18,3 +24,7 @@ devbox-start:
 .PHONY: devbox-stop
 devbox-stop:
 	make -C docker cluster-stop
+
+.PHONY: migration-test
+migration-test:
+	make -C backend migration-test

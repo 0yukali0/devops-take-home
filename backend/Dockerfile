@@ -17,7 +17,9 @@ RUN --mount=type=cache,sharing=locked,mode=0777,target=/root/.local/share/pnpm/s
 RUN --mount=type=bind,target=package.json,src=package.json \
     --mount=type=bind,target=tsconfig.json,src=tsconfig.json \
     --mount=type=bind,target=src,src=src \
-    pnpm build
+    --mount=type=bind,target=migrate,src=migrate \
+    pnpm build && \
+    node_modules/.bin/esbuild migrate/index.ts --bundle --platform=node --outdir=dist/migrate --format=cjs
 
 # production stage
 FROM base AS runner

@@ -8,3 +8,7 @@ obs-deploy:
 		helm dependency update; \
 	fi
 	helm upgrade --install metric-dashboard . -n monitoring --create-namespace --set alloy.clusterName=$(CLUSTER_NAME)
+
+.PHONY: lint
+lint:
+	helm lint --quiet .

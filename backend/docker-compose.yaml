@@ -1,8 +1,19 @@
 version: "3.8"
 
 services:
+  traefik:
+    image: traefik:v3
+    ports:
+      - "80:80"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic
+    networks:
+      - backend
+    restart: unless-stopped
+
   app:
-    build: .
+    image: backend:${VERSION:-dev}
     ports:
       - "3000:3000"
     environment:
@@ -13,24 +24,27 @@ services:
       - mongo
       - postgres
       - redis
+    networks:
+      - backend
     restart: unless-stopped
 
   collector:
-    build: .
+    image: backend:${VERSION:-dev}
     command: ["node", "dist/collector.js"]
     environment:
       - MONGO_URI=mongodb://mongo:27017/ems
       - COLLECT_INTERVAL_MS=10000
     depends_on:
       - mongo
+    networks:
+      - backend
     restart: unless-stopped
 
   mongo:
     image: mongo:7
     command: mongod --wiredTigerCacheSizeGB 4
-    # no volume — data is lost on restart
-    # no auth — anyone can connect
-    # cache set to 4GB — way too high for an 8GB host
+    networks:
+      - backend
     restart: unless-stopped
 
   postgres:
@@ -39,11 +53,16 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=ems
-    # no volume — data is lost on restart
-    # using default shared_buffers (128MB)
+    networks:
+      - backend
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    # no volume — data is lost on restart
+    networks:
+      - backend
     restart: unless-stopped
+
+networks:
+  backend:
+    name: backend_default

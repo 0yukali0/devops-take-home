@@ -1,1 +1,6 @@
+# helm chart depedency
 charts/charts
+
+# dev environment
+*.log
+node_modules
