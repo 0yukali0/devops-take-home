@@ -229,3 +229,60 @@ DOMAIN=your-site.example.com
 |--------|------|
 | T2 Backup | 需真實 S3 環境驗證；設計思路寫入 T7 |
 | T5 GitOps | 12 站點 SSH 管理可先用 Ansible 臨時解決；GitOps 是 nice-to-have |
+
+---
+
+## 題目修改說明
+
+### Ticket 4：從 k3s variant 改為 Blue-Green + Traefik
+
+**怎麼改的**
+
+原題目提供三條路：compose rolling restart、blue-green、或 k3s Deployment（Optional variant）。題目也特別說明 k3s 路線能展示 Kubernetes 能力，對公司有參考價值。
+
+我選擇了 **blue-green + Traefik 動態路由**，而非 k3s。具體做法：
+- `deploy.sh` 直接操作 Docker container（`docker run` 啟動 app-new，curl health check，`mv` 覆寫 Traefik dynamic config，`docker rm` 舊容器，`docker rename` 收尾）
+- Traefik file-watcher 偵測到 `traefik/dynamic/app.yml` 變更後自動 reload，實現 atomic upstream 切換
+- `rename` 在 config 寫入後才執行，利用 Traefik ~1s reload 延遲避免 race condition（config 指向 `app:3000` 但此時容器名仍是 `app-new`，rename 完成時 Traefik 才切換完畢）
+
+**為什麼改**
+
+兩個原因都有：
+
+1. **更貼近職位需求**：題目情境是 12 個客戶邊緣站點，每台 8GB RAM。k3s 本身的 control plane 佔用約 512MB–1GB，加上 etcd、kubelet 等，在資源受限的邊緣主機上會擠壓給 app、MongoDB、Postgres 用的空間，與 T1 的記憶體優化方向相反。選擇停留在 docker-compose 層級，讓部署機制與現有 stack 一致，維運複雜度也不增加。
+
+2. **展現能力**：用 proxy layer（Traefik）做 atomic 切換，比 `docker-compose up --no-deps app` rolling restart 多展示一層：proxy 配置管理、file-watcher reload 時序、rename race condition 分析。這是 compose 方案做不到的。
+
+**多覆蓋了哪些能力 / 少測了哪些**
+
+| | 說明 |
+|--|------|
+| 多覆蓋 | Traefik 動態路由配置（static/dynamic 分層）；atomic config swap 的時序設計；deploy log 自動寫檔供事後稽核 |
+| 少測 | **Kubernetes 能力**：k3s Deployment rollout、readiness/liveness probe 配置、Job-based migration 執行順序、K8s 層面的 rollback（DB state 已變更時怎麼處理）——這些是 k3s 路線才能展示的東西，本方案完全沒有觸及 |
+
+---
+
+### Ticket 3：加入 Tempo（Distributed Tracing），暫未完成 Loki
+
+**怎麼改的**
+
+題目明確建議的 stack 是 **Grafana + Prometheus + Loki + Alloy/Promtail**（metrics + logs）。我在此基礎上加入了 **Tempo**（distributed tracing），讓方案涵蓋觀測性三支柱，但 **Loki 尚未完成**。
+
+具體實作：
+- Helm umbrella chart（`charts/`）組合 kube-prometheus-stack + Tempo + Alloy
+- Alloy 作為 OTLP receiver，注入 `cluster` label 後轉送至 Tempo（gRPC :4317）
+- kube-prometheus-stack 自動注入 Tempo datasource 至 Grafana
+- NodePort 30317/30318 供邊緣站點推送 trace 資料
+
+**為什麼改**
+
+以展現能力為主：
+
+Grafana stack 的三支柱（metrics / logs / traces）在實務上經常一起部署，但面試題通常只測 metrics + logs，traces 往往被跳過。加入 Tempo 能展示對整個 Grafana observability ecosystem 的熟悉程度——Alloy pipeline 配置、OTLP over gRPC 傳輸、Grafana datasource provisioning——而不只是照著預設路徑做。
+
+**多覆蓋了哪些能力 / 少測了哪些**
+
+| | 說明 |
+|--|------|
+| 多覆蓋 | Distributed tracing 架構（OTLP over gRPC、Tempo trace storage、Alloy pipeline）；Helm umbrella chart 組合多個 sub-chart；cluster label 注入讓多站點 trace 可區分；Kubernetes-native 部署整個 observability stack |
+| 少測 | **Loki log aggregation**（題目明確要求，但本版本尚未完成）；多站點模擬腳本（`simulate/site-{1,2,3}/`）；Alert 規則（`SiteOffline`、`CriticalServiceDown`）；All-Sites Overview dashboard——這些是題目核心要求，目前是空缺，屬於實作進度問題，不是刻意取捨 |
