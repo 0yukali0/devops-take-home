@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
 
 IMAGE="${1:-}"
 if [[ -z "$IMAGE" ]]; then
@@ -94,8 +94,7 @@ log "Traefik now routing to app-new:3000"
 
 # 6. Remove blue container
 log "Stopping and removing blue container (app)..."
-docker stop app
-docker rm app
+docker rm -f app
 
 # 7. Restore canonical Traefik config first, then rename.
 #    Order matters: write app:3000 while container is still app-new.

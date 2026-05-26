@@ -4,8 +4,9 @@ image:
 	docker build -t backend:$(VERSION) .
 
 .PHONY: dev-start
-dev-start: dev-stop
+dev-start: dev-stop image
 	docker compose up -d
+	docker compose exec app node dist/seed.js
 
 .PHONY: dev-stop
 dev-stop:
