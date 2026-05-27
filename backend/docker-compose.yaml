@@ -62,13 +62,19 @@ services:
       - MONGO_APP_USER=${MONGO_APP_USER}
       - MONGO_APP_PASS=${MONGO_APP_PASS}
     volumes:
-      - mongo_data:/data/db
+      - ${VOLUME_PATH:-/tmp}/mongo-data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d:ro
     networks:
       - backend
     restart: unless-stopped
     mem_limit: 2g
     memswap_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ping:1})' mongodb://$$MONGO_APP_USER:$$MONGO_APP_PASS@127.0.0.1:27017/ems"]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
 
   postgres:
     image: postgres:16
@@ -81,7 +87,7 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=ems
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ${VOLUME_PATH:-/tmp}/postgres-data:/var/lib/postgresql/data
     networks:
       - backend
     restart: unless-stopped
@@ -92,7 +98,7 @@ services:
     image: redis:7-alpine
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
-      - redis_data:/data
+      - ${VOLUME_PATH:-/tmp}/redis-data:/data
     networks:
       - backend
     restart: unless-stopped
@@ -102,23 +108,3 @@ services:
 networks:
   backend:
     name: backend_default
-
-volumes:
-  mongo_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${VOLUME_PATH:-/tmp}/mongo-data
-  postgres_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${VOLUME_PATH:-/tmp}/postgres-data
-  redis_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${VOLUME_PATH:-/tmp}/redis-data

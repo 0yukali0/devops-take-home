@@ -3,6 +3,10 @@
 # deploy.sh (runs migration + blue-green switch), and verify the app is healthy.
 set -e
 
+# Load credentials from .env so deploy.sh inherits MONGO_URI with auth
+# shellcheck disable=SC1091
+set -a; source .env; set +a
+
 BLUE=mt-blue
 GREEN=mt-green
 
