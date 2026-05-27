@@ -4,3 +4,4 @@ charts/charts
 # dev environment
 *.log
 node_modules
+backend/.env

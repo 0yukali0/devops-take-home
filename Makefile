@@ -28,3 +28,7 @@ devbox-stop:
 .PHONY: migration-test
 migration-test:
 	make -C backend migration-test
+
+.PHONY: e2e-test
+e2e-test:
+	make -C backend e2e-test

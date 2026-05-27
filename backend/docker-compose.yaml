@@ -11,14 +11,18 @@ services:
     networks:
       - backend
     restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
 
   app:
     image: backend:${VERSION:-dev}
     container_name: app
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
-      - MONGO_URI=mongodb://mongo:27017/ems
+      - MONGO_URI=${MONGO_URI}
       - PG_URI=postgresql://postgres:postgres@postgres:5432/ems
       - REDIS_URL=redis://redis:6379
     depends_on:
@@ -28,42 +32,93 @@ services:
     networks:
       - backend
     restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
 
   collector:
     image: backend:${VERSION:-dev}
     command: ["node", "dist/collector.js"]
+    env_file:
+      - .env
     environment:
-      - MONGO_URI=mongodb://mongo:27017/ems
+      - MONGO_URI=${MONGO_URI}
       - COLLECT_INTERVAL_MS=10000
     depends_on:
       - mongo
     networks:
       - backend
     restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
 
   mongo:
     image: mongo:7
-    command: mongod --wiredTigerCacheSizeGB 4
+    command: mongod --auth --wiredTigerCacheSizeGB 1.5
+    env_file:
+      - .env
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASS}
+      - MONGO_APP_USER=${MONGO_APP_USER}
+      - MONGO_APP_PASS=${MONGO_APP_PASS}
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
     networks:
       - backend
     restart: unless-stopped
+    mem_limit: 2g
+    memswap_limit: 2g
 
   postgres:
     image: postgres:16
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=ems
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     networks:
       - backend
     restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
 
   redis:
     image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
     networks:
       - backend
     restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
 
 networks:
   backend:
     name: backend_default
+
+volumes:
+  mongo_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${VOLUME_PATH:-/tmp}/mongo-data
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${VOLUME_PATH:-/tmp}/postgres-data
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${VOLUME_PATH:-/tmp}/redis-data

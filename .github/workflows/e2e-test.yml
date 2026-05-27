@@ -1,4 +1,4 @@
-name: Migration Test
+name: E2E Test
 
 on:
   push:
@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  migration-test:
+  e2e-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -18,5 +18,5 @@ jobs:
       - name: Create .env from example (docker-compose requires the file to exist)
         run: cp backend/.env.example backend/.env
 
-      - name: Run migration + blue-green deploy test
-        run: make migration-test
+      - name: Run e2e validation test (tasks 9.1–9.5)
+        run: make e2e-test
