@@ -7,7 +7,7 @@
 | 1 | T4 | Zero-Downtime Deploy | ✅ 完成 | 3h |
 | 1 | T2 | Backup Pipeline | — 跳過（需討論） | — |
 | 2 | T3 | Central Multi-Site Observability | 🔄 進行中 | 8–10h |
-| 2 | T1 | Database Misconfiguration | ⬜ 未完成 | 2h |
+| 2 | T1 | Database Misconfiguration | ✅ 完成 | 2h |
 | 3 | T5 | GitOps | — 跳過（待 T4/T1 穩定後） | — |
 | 3 | T6 | AI-Assisted Operations Handoff | ⬜ 未完成 | 3h |
 | — | T7 | Prioritization & Multi-Site Strategy | ✅ 完成 | 1.5h |
@@ -102,37 +102,60 @@ make uninstall      # 清除
 
 ---
 
-## Ticket 1：Database Misconfiguration ⬜
+## Ticket 1：Database Misconfiguration ✅
 
-修正 `docker-compose.yaml` 的記憶體、認證、資料持久化問題。
+修正 `docker-compose.yaml` 的記憶體、認證、資料持久化問題。詳細分析與計算依據見 [plan/work1.md](plan/work1.md)。
 
-### 待修正問題
+### 完成內容
 
-| 位置 | 問題 |
-|------|------|
-| `docker-compose.yaml:46` | MongoDB `--wiredTigerCacheSizeGB 4`（主機 8GB 僅此服務就用掉 4GB）|
-| `docker-compose.yaml` | MongoDB 無認證（`--auth` 未開啟）|
-| `docker-compose.yaml` | 所有服務無 volume mount，重啟後資料消失 |
-| `docker-compose.yaml` | 所有服務無 memory limit |
+| 問題 | 修正方式 |
+|------|---------|
+| MongoDB WiredTiger cache 4GB（8GB 主機無法負荷）| 調整為 1.5 GB，container limit 2 GB |
+| MongoDB 無認證 | 啟用 `--auth`，透過 `mongo-init/` 建立 root / app 帳號 |
+| 所有服務無 volume mount，重啟後資料消失 | 掛載 bind mount，路徑由 `VOLUME_PATH` 環境變數控制 |
+| 所有服務無 memory limit | 全部容器加入 `mem_limit` + `memswap_limit` |
+| PostgreSQL `shared_buffers` 僅 128MB（預設值）| 調整為 256MB，加入 `effective_cache_size=1GB` |
 
-### 記憶體預算（8GB 主機）
+### 記憶體分配（8GB 主機）
 
-| 服務 | memory limit | 備註 |
-|------|-------------|------|
-| app (Node.js) | 512m | — |
-| collector (Node.js) | 256m | — |
-| MongoDB | 2g | wiredTigerCacheSizeGB 1.5 |
-| PostgreSQL | 1g | shared_buffers=512MB |
-| Redis | 512m | maxmemory 256mb |
-| OS + headroom | ~3.7g | — |
+| 服務 | Container Limit | 說明 |
+|------|----------------|------|
+| OS + kernel | 保留 ~1.5 GB | 不設 limit |
+| mongo | **2 GB** | wiredTigerCache 1.5 GB + 連線開銷 |
+| postgres | **1 GB** | shared_buffers 256 MB + work_mem |
+| redis | **512 MB** | maxmemory 256 MB |
+| app | **512 MB** | Node.js heap |
+| collector | **256 MB** | 輕量寫入程序 |
+| traefik | **256 MB** | reverse proxy |
+| **合計 limits** | **~4.5 GB** | 留有 >1.5 GB buffer |
 
-### 待完成
+WiredTiger cache 計算：MongoDB 官方公式 `(8GB - 1GB) × 0.5 = 3.5 GB`，但需保留給其他服務，保守設定 **1.5 GB**。
 
-- [ ] MongoDB：調整 cache 大小、開啟 `--auth`、加入 volume
-- [ ] PostgreSQL：`shared_buffers=512MB`、加入 volume
-- [ ] Redis：`--maxmemory 256mb --maxmemory-policy allkeys-lru`、加入 volume
-- [ ] 所有服務加入 `deploy.resources.limits.memory`
-- [ ] 密碼改用 `.env` 管理（加入 `.gitignore`）
+### OOM 行為
+
+超過 `mem_limit` 時，Docker（Linux cgroup）觸發 **OOM Killer** 強制終止該容器，不影響其他服務。`restart: unless-stopped` 確保自動重啟。`memswap_limit = mem_limit` 停用 swap，避免 OOM 前的 swap thrashing 效能劣化期（比直接 OOM kill 更難診斷）。
+
+| 容器 | 被 OOM kill 的影響 | 緩解方式 |
+|------|-------------------|---------|
+| **mongo** | 最嚴重：寫入中斷，WiredTiger journal recovery | limit 2 GB > cache 1.5 GB 提供 headroom |
+| **postgres** | 進行中 query 失敗，app 拋 connection error | 連線池自動重連 |
+| **redis** | Session / cache 全部遺失 | `allkeys-lru` 提前主動淘汰，避免觸及 limit |
+| **app** | 進行中 HTTP request 中斷，Traefik 返回 502 | client 重試即可 |
+| **collector** | 當前 10s cycle 資料遺失，下個 cycle 恢復 | 影響可接受 |
+
+### 部署方式
+
+```bash
+# 複製 .env.example，填入各站點密碼
+cp backend/.env.example backend/.env
+
+# 設定資料存放路徑（production 建議 /opt/ems/data）
+echo "VOLUME_PATH=/opt/ems/data" >> backend/.env
+
+docker compose -f backend/docker-compose.yaml up -d
+```
+
+> 詳細計算依據、安全設計、磁碟容量估算見 [plan/work1.md](plan/work1.md)。
 
 ---
 

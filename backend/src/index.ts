@@ -11,9 +11,7 @@ import { env } from "./config";
 import { log } from "./logger";
 
 // --- MongoDB connection ---
-// intentional: no pool size limit, and POST /api/telemetry never releases connections
-
-const mongoClient = new MongoClient(env.MONGO_URI);
+const mongoClient = new MongoClient(env.MONGO_URI, { maxPoolSize: 10 });
 let db: Db | undefined;
 
 async function getMongo(): Promise<Db> {
@@ -119,13 +117,9 @@ const IngestSchema = z.object({
 app.post("/api/telemetry", async (c) => {
   try {
     const body = IngestSchema.parse(await c.req.json());
+    const db = await getMongo();
 
-    // intentional: opens a fresh MongoClient per request and never closes it
-    const insertClient = new MongoClient(env.MONGO_URI);
-    await insertClient.connect();
-    const insertDb = insertClient.db();
-
-    await insertDb.collection("telemetry").insertOne({
+    await db.collection("telemetry").insertOne({
       deviceId: body.deviceId,
       attribute: body.attribute,
       value: body.value,
@@ -133,7 +127,6 @@ app.post("/api/telemetry", async (c) => {
       ingestedAt: new Date(),
     });
 
-    // intentional: insertClient.close() is never called — leaks
     return c.json({ status: "ok" });
   } catch (err) {
     log.error({ err }, "POST /api/telemetry failed");

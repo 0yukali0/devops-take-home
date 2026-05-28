@@ -1,10 +1,14 @@
 .PHONY: image
 VERSION ?= dev
+VOLUME  ?= /tmp
 image:
 	docker build -t backend:$(VERSION) .
 
 .PHONY: dev-start
 dev-start: dev-stop image
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	VPATH=$${VOLUME_PATH:-$(VOLUME)}; \
+	mkdir -p "$$VPATH/mongo-data" "$$VPATH/postgres-data" "$$VPATH/redis-data"
 	docker compose up -d
 	docker compose exec app node dist/seed.js
 
@@ -15,6 +19,9 @@ dev-stop:
 .PHONY: deploy
 deploy:
 	@test -n "$(VERSION)" || (echo "VERSION is required: make deploy VERSION=<tag>" >&2; exit 1)
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	VPATH=$${VOLUME_PATH:-$(VOLUME)}; \
+	mkdir -p "$$VPATH/mongo-data" "$$VPATH/postgres-data" "$$VPATH/redis-data"
 	./deploy.sh backend:$(VERSION)
 
 .PHONY: lint
@@ -29,6 +36,24 @@ migrate:
 		-e MONGO_URI=$${MONGO_URI:-mongodb://mongo:27017/ems} \
 		backend:$(VERSION) node dist/migrate/index.js
 
+# End-to-end validation test covering fix-ticket1-db-misconfiguration (9.x tasks).
+#   9.1  Clean build — all services start and become healthy
+#   9.2  Seed — completes without auth errors
+#   9.3  API smoke — GET /health, /api/devices, /api/telemetry/latest all return 200
+#   9.4  Memory sanity — no container has restarted (OOM would cause restarts)
+#   9.5  Persistence — device data survives docker compose down && up
+.PHONY: e2e-test
+e2e-test:
+	@echo "=== E2E Validation Test (tasks 9.1–9.5) ==="
+	@set -e; \
+	trap '$(MAKE) dev-stop 2>/dev/null || true' EXIT; \
+	bash scripts/e2e/01-start.sh; \
+	bash scripts/e2e/02-api-smoke.sh; \
+	bash scripts/e2e/03-memory-check.sh; \
+	bash scripts/e2e/04-persistence.sh; \
+	echo ""; \
+	echo "=== e2e-test PASSED: all 9.x validation steps complete ==="
+
 # End-to-end migration + blue-green deploy test for CI.
 # Builds two image tags from the current source, starts infrastructure via
 # docker compose, boots v1 as the live container, then deploys v2 through
@@ -38,36 +63,11 @@ migrate:
 # healthy at the end.
 .PHONY: migration-test
 migration-test:
+	@[ -f .env ] || { echo "No .env found — copying from .env.example"; cp .env.example .env; }
 	@echo "=== Migration + deploy integration test ==="
 	@set -e; \
-	BLUE=mt-blue; GREEN=mt-green; \
-	cleanup() { \
-		docker stop app app-new 2>/dev/null || true; \
-		docker rm  app app-new 2>/dev/null || true; \
-		docker compose down    2>/dev/null || true; \
-		docker rmi backend:$$BLUE backend:$$GREEN 2>/dev/null || true; \
-	}; \
-	trap cleanup EXIT; \
-	cleanup; \
-	echo "--- Build blue image ---"; \
-	$(MAKE) image VERSION=$$BLUE; \
-	echo "--- Start infrastructure (traefik + databases) ---"; \
-	VERSION=$$BLUE docker compose up -d traefik mongo postgres redis; \
-	echo "--- Start blue app container ---"; \
-	docker run -d --name app --network backend_default \
-		-e MONGO_URI=mongodb://mongo:27017/ems \
-		-e PG_URI=postgresql://postgres:postgres@postgres:5432/ems \
-		-e REDIS_URL=redis://redis:6379 \
-		backend:$$BLUE; \
-	echo "Waiting for app to be healthy..."; \
-	for i in $$(seq 20); do curl -sf http://localhost/health >/dev/null 2>&1 && break || sleep 2; done; \
-	curl -sf http://localhost/health || { echo "FAIL: blue app not healthy" >&2; exit 1; }; \
-	echo "PASS: blue app healthy"; \
-	echo "--- Tag green image (same source = idempotent migration) ---"; \
-	docker tag backend:$$BLUE backend:$$GREEN; \
-	echo "--- Deploy green via deploy.sh (migration + blue-green switch) ---"; \
-	./deploy.sh backend:$$GREEN; \
-	echo "--- Verify app is healthy after deploy ---"; \
-	for i in $$(seq 10); do curl -sf http://localhost/health >/dev/null 2>&1 && break || sleep 1; done; \
-	curl -sf http://localhost/health || { echo "FAIL: app not healthy after deploy" >&2; exit 1; }; \
+	trap 'bash scripts/migration/cleanup.sh' EXIT; \
+	bash scripts/migration/cleanup.sh; \
+	bash scripts/migration/01-start-blue.sh; \
+	bash scripts/migration/02-deploy-green.sh; \
 	echo "PASS: migration-test complete"
