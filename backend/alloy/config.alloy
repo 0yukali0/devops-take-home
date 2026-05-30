@@ -1,0 +1,128 @@
+// ─── Trace pipeline ───────────────────────────────────────────────────────────
+
+otelcol.receiver.otlp "default" {
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		traces = [otelcol.processor.transform.add_labels.input]
+	}
+}
+
+// Adds DOAMIN and STAGE resource attributes to every span.
+otelcol.processor.transform "add_labels" {
+	error_mode = "ignore"
+
+	trace_statements {
+		context = "resource"
+		// River env() builds the OTTL string at load time; the resulting statement
+		// contains the literal value, mirroring how charts/values.yaml uses {{ .Values.clusterName }}.
+		statements = [
+			"set(resource.attributes[\"DOAMIN\"], \"" + env("ALLOY_DOAMIN") + "\")",
+			"set(resource.attributes[\"STAGE\"], \"" + env("ALLOY_STAGE") + "\")",
+		]
+	}
+
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = env("ALLOY_REMOTE_HOST") + ":4317"
+
+		tls {
+			insecure = true
+		}
+	}
+}
+
+// ─── Metrics pipeline ─────────────────────────────────────────────────────────
+
+// Root credentials required — the app user lacks admin privileges for server-level stats.
+prometheus.exporter.mongodb "mongo" {
+	mongodb_uri = "mongodb://" + env("MONGO_ROOT_USER") + ":" + env("MONGO_ROOT_PASS") + "@mongo:27017/admin"
+}
+
+prometheus.exporter.redis "redis" {
+	redis_addr = "redis:6379"
+}
+
+prometheus.exporter.postgres "postgres" {
+	data_source_names = ["postgresql://postgres:postgres@postgres:5432/ems?sslmode=disable"]
+}
+
+prometheus.scrape "mongo" {
+	targets    = prometheus.exporter.mongodb.mongo.targets
+	forward_to = [prometheus.relabel.add_labels.receiver]
+	job_name   = "mongo"
+}
+
+prometheus.scrape "redis" {
+	targets    = prometheus.exporter.redis.redis.targets
+	forward_to = [prometheus.relabel.add_labels.receiver]
+	job_name   = "redis"
+}
+
+prometheus.scrape "postgres" {
+	targets    = prometheus.exporter.postgres.postgres.targets
+	forward_to = [prometheus.relabel.add_labels.receiver]
+	job_name   = "postgres"
+}
+
+// Attaches DOAMIN and STAGE labels to all scraped metrics before remote_write.
+prometheus.relabel "add_labels" {
+	forward_to = [prometheus.remote_write.prometheus.receiver]
+
+	rule {
+		target_label = "DOAMIN"
+		replacement  = env("ALLOY_DOAMIN")
+	}
+
+	rule {
+		target_label = "STAGE"
+		replacement  = env("ALLOY_STAGE")
+	}
+}
+
+prometheus.remote_write "prometheus" {
+	endpoint {
+		url = "http://" + env("ALLOY_REMOTE_HOST") + "/api/v1/write"
+	}
+}
+
+// ─── Log pipeline ─────────────────────────────────────────────────────────────
+
+discovery.docker "containers" {
+	host = "unix:///var/run/docker.sock"
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.docker.containers.targets
+	forward_to = [loki.process.add_labels.receiver]
+}
+
+// Stamps every log entry with DOAMIN and STAGE so Loki queries can filter by stage.
+loki.process "add_labels" {
+	forward_to = [loki.write.loki.receiver]
+
+	stage.static_labels {
+		values = {
+			DOAMIN = env("ALLOY_DOAMIN"),
+			STAGE  = env("ALLOY_STAGE"),
+		}
+	}
+}
+
+loki.write "loki" {
+	endpoint {
+		url = "http://" + env("ALLOY_REMOTE_HOST") + "/loki/api/v1/push"
+	}
+}
