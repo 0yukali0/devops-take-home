@@ -10,19 +10,24 @@ kube-prometheus-stack:
     persistence:
       enabled: false
     sidecar:
+      dashboards:
+        enabled: true
       datasources:
         defaultDatasourceEnabled: false
     additionalDataSources:
       - name: Mimir
+        uid: mimir
         type: prometheus
-        url: http://metric-dashboard-mimir-distributed-query-frontend.monitoring.svc.cluster.local:8080/prometheus
+        url: http://metric-dashboard-mimir-query-frontend.monitoring.svc.cluster.local:8080/prometheus
         access: proxy
         isDefault: true
       - name: Loki
+        uid: loki
         type: loki
         url: http://metric-dashboard-loki.monitoring.svc.cluster.local:3100
         access: proxy
       - name: Tempo
+        uid: tempo
         type: tempo
         url: http://metric-dashboard-tempo.monitoring.svc.cluster.local:3200
         access: proxy
@@ -86,6 +91,7 @@ mimir-distributed:
     enabled: false
   mimir:
     structuredConfig:
+      multitenancy_enabled: false
       common:
         storage:
           backend: filesystem

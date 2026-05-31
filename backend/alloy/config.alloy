@@ -14,7 +14,7 @@ otelcol.receiver.otlp "default" {
 	}
 }
 
-// Adds DOAMIN and STAGE resource attributes to every span.
+// Adds DOMAIN and STAGE resource attributes to every span.
 otelcol.processor.transform "add_labels" {
 	error_mode = "ignore"
 
@@ -23,7 +23,7 @@ otelcol.processor.transform "add_labels" {
 		// River env() builds the OTTL string at load time; the resulting statement
 		// contains the literal value, mirroring how charts/values.yaml uses {{ .Values.clusterName }}.
 		statements = [
-			"set(resource.attributes[\"DOAMIN\"], \"" + env("ALLOY_DOAMIN") + "\")",
+			"set(resource.attributes[\"DOMAIN\"], \"" + env("ALLOY_DOMAIN") + "\")",
 			"set(resource.attributes[\"STAGE\"], \"" + env("ALLOY_STAGE") + "\")",
 		]
 	}
@@ -76,13 +76,32 @@ prometheus.scrape "postgres" {
 	job_name   = "postgres"
 }
 
-// Attaches DOAMIN and STAGE labels to all scraped metrics before remote_write.
+// ─── Container metrics (cAdvisor) ────────────────────────────────────────────
+
+prometheus.scrape "cadvisor" {
+	targets = [{"__address__" = "cadvisor:8080"}]
+	forward_to = [prometheus.relabel.filter_project.receiver]
+	job_name   = "cadvisor"
+}
+
+// Keep only containers belonging to this compose project, plus non-container metrics.
+prometheus.relabel "filter_project" {
+	forward_to = [prometheus.relabel.add_labels.receiver]
+
+	rule {
+		source_labels = ["container_label_com_docker_compose_project"]
+		regex         = "^(" + env("ALLOY_PROJECT") + "|)$"
+		action        = "keep"
+	}
+}
+
+// Attaches DOMAIN and STAGE labels to all scraped metrics before remote_write.
 prometheus.relabel "add_labels" {
 	forward_to = [prometheus.remote_write.prometheus.receiver]
 
 	rule {
-		target_label = "DOAMIN"
-		replacement  = env("ALLOY_DOAMIN")
+		target_label = "DOMAIN"
+		replacement  = env("ALLOY_DOMAIN")
 	}
 
 	rule {
@@ -112,13 +131,13 @@ loki.source.docker "containers" {
 	forward_to = [loki.process.add_labels.receiver]
 }
 
-// Stamps every log entry with DOAMIN and STAGE so Loki queries can filter by stage.
+// Stamps every log entry with DOMAIN and STAGE so Loki queries can filter by stage.
 loki.process "add_labels" {
 	forward_to = [loki.write.loki.receiver]
 
 	stage.static_labels {
 		values = {
-			DOAMIN = env("ALLOY_DOAMIN"),
+			DOMAIN = env("ALLOY_DOMAIN"),
 			STAGE  = env("ALLOY_STAGE"),
 		}
 	}

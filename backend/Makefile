@@ -12,7 +12,7 @@ else
   COMPOSE     = INSTANCE=$(INSTANCE) BACKEND_NET=backend-$(INSTANCE) INSTANCE_SUFFIX=-$(INSTANCE) docker compose -p backend-$(INSTANCE)
   BACKEND_NET = backend-$(INSTANCE)
   INST_SUFFIX = -$(INSTANCE)
-  SERVICES    = app collector mongo postgres redis alloy
+  SERVICES    = app collector mongo postgres redis alloy cadvisor
 endif
 
 image:

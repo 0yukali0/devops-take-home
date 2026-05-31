@@ -128,14 +128,30 @@ services:
       retries: 12
       start_period: 5s
 
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    command:
+      - "--docker_only=true"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - backend
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+
   alloy:
     image: grafana/alloy:latest
     command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
     env_file:
       - .env
     environment:
-      - ALLOY_DOAMIN=${ALLOY_DOAMIN}-${INSTANCE:-1}
-      - ALLOY_TENANT_ID=${ALLOY_DOAMIN}-${ALLOY_STAGE}-${INSTANCE:-1}
+      - ALLOY_DOMAIN=${ALLOY_DOMAIN}-${INSTANCE:-1}
+      - ALLOY_TENANT_ID=${ALLOY_DOMAIN}-${ALLOY_STAGE}-${INSTANCE:-1}
+      - ALLOY_PROJECT=backend${INSTANCE_SUFFIX:-}
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
