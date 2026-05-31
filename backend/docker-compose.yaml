@@ -31,6 +31,8 @@ services:
       - MONGO_URI=${MONGO_URI}
       - PG_URI=postgresql://postgres:postgres@postgres:5432/ems
       - REDIS_URL=redis://redis:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
+      - OTEL_SERVICE_NAME=ems-api
     depends_on:
       - mongo
       - postgres
@@ -50,6 +52,8 @@ services:
     environment:
       - MONGO_URI=${MONGO_URI}
       - COLLECT_INTERVAL_MS=10000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
+      - OTEL_SERVICE_NAME=ems-collector
     depends_on:
       - mongo
     networks:

@@ -1,5 +1,8 @@
 import "./envConfig";
 
+import { trace, SpanStatusCode } from "@opentelemetry/api";
+
+const tracer = trace.getTracer("ems-edge");
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { MongoClient, type Db } from "mongodb";
@@ -41,9 +44,25 @@ app.get("/health", (c) => c.json({ status: "ok" }));
 
 // Get all devices
 app.get("/api/devices", async (c) => {
+  trace.getActiveSpan()?.updateName("GET /api/devices");
   try {
     const db = await getMongo();
-    const devices = await db.collection("devices").find({}).toArray();
+    const devices = await tracer.startActiveSpan("mongo.devices.find", async (dbSpan) => {
+      try {
+        const result = await db.collection("devices").find({}).toArray();
+        dbSpan.setAttribute("data_size", result.length);
+        if (result.length > 0) {
+          dbSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+        return result;
+      } catch (err) {
+        dbSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        dbSpan.recordException(err as Error);
+        throw err;
+      } finally {
+        dbSpan.end();
+      }
+    });
     return c.json(devices);
   } catch (err) {
     log.error({ err }, "GET /api/devices failed");
@@ -60,6 +79,7 @@ const TelemetryQuerySchema = z.object({
 });
 
 app.get("/api/devices/:deviceId/telemetry", async (c) => {
+  trace.getActiveSpan()?.updateName("GET /api/devices/:deviceId/telemetry");
   try {
     const db = await getMongo();
     const deviceId = c.req.param("deviceId");
@@ -73,13 +93,27 @@ app.get("/api/devices/:deviceId/telemetry", async (c) => {
       filter.timestamp = ts;
     }
 
-    const docs = await db
-      .collection("telemetry")
-      .find(filter)
-      .sort({ timestamp: -1 })
-      .limit(limit)
-      .toArray();
-
+    const docs = await tracer.startActiveSpan("mongo.telemetry.find", async (dbSpan) => {
+      try {
+        const result = await db
+          .collection("telemetry")
+          .find(filter)
+          .sort({ timestamp: -1 })
+          .limit(limit)
+          .toArray();
+        dbSpan.setAttribute("data_size", result.length);
+        if (result.length > 0) {
+          dbSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+        return result;
+      } catch (err) {
+        dbSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        dbSpan.recordException(err as Error);
+        throw err;
+      } finally {
+        dbSpan.end();
+      }
+    });
     return c.json(docs);
   } catch (err) {
     log.error({ err }, "GET /api/devices/:deviceId/telemetry failed");
@@ -90,15 +124,31 @@ app.get("/api/devices/:deviceId/telemetry", async (c) => {
 // Get latest telemetry for all devices (dashboard view)
 // intentional: aggregation on unindexed collection — very slow with 2M docs
 app.get("/api/telemetry/latest", async (c) => {
+  trace.getActiveSpan()?.updateName("GET /api/telemetry/latest");
   try {
     const db = await getMongo();
-    const latest = await db
-      .collection("telemetry")
-      .aggregate([
-        { $sort: { timestamp: -1 } },
-        { $group: { _id: "$deviceId", latest: { $first: "$$ROOT" } } },
-      ])
-      .toArray();
+    const latest = await tracer.startActiveSpan("mongo.telemetry.aggregate", async (dbSpan) => {
+      try {
+        const result = await db
+          .collection("telemetry")
+          .aggregate([
+            { $sort: { timestamp: -1 } },
+            { $group: { _id: "$deviceId", latest: { $first: "$$ROOT" } } },
+          ])
+          .toArray();
+        dbSpan.setAttribute("data_size", result.length);
+        if (result.length > 0) {
+          dbSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+        return result;
+      } catch (err) {
+        dbSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        dbSpan.recordException(err as Error);
+        throw err;
+      } finally {
+        dbSpan.end();
+      }
+    });
     return c.json(latest.map((d) => d.latest));
   } catch (err) {
     log.error({ err }, "GET /api/telemetry/latest failed");
@@ -115,16 +165,29 @@ const IngestSchema = z.object({
 });
 
 app.post("/api/telemetry", async (c) => {
+  trace.getActiveSpan()?.updateName("POST /api/telemetry");
   try {
     const body = IngestSchema.parse(await c.req.json());
     const db = await getMongo();
 
-    await db.collection("telemetry").insertOne({
-      deviceId: body.deviceId,
-      attribute: body.attribute,
-      value: body.value,
-      timestamp: body.timestamp ?? new Date(),
-      ingestedAt: new Date(),
+    await tracer.startActiveSpan("mongo.telemetry.insertOne", async (dbSpan) => {
+      try {
+        await db.collection("telemetry").insertOne({
+          deviceId: body.deviceId,
+          attribute: body.attribute,
+          value: body.value,
+          timestamp: body.timestamp ?? new Date(),
+          ingestedAt: new Date(),
+        });
+        dbSpan.setAttribute("data_size", 1);
+        dbSpan.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        dbSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        dbSpan.recordException(err as Error);
+        throw err;
+      } finally {
+        dbSpan.end();
+      }
     });
 
     return c.json({ status: "ok" });
@@ -136,11 +199,27 @@ app.post("/api/telemetry", async (c) => {
 
 // Postgres: dashboard configs
 app.get("/api/dashboards", async (c) => {
+  trace.getActiveSpan()?.updateName("GET /api/dashboards");
   try {
-    const result = await pgPool.query(
-      "SELECT * FROM dashboards ORDER BY created_at DESC",
-    );
-    return c.json(result.rows);
+    const rows = await tracer.startActiveSpan("pg.dashboards.select", async (dbSpan) => {
+      try {
+        const result = await pgPool.query(
+          "SELECT * FROM dashboards ORDER BY created_at DESC",
+        );
+        dbSpan.setAttribute("data_size", result.rows.length);
+        if (result.rows.length > 0) {
+          dbSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+        return result.rows;
+      } catch (err) {
+        dbSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        dbSpan.recordException(err as Error);
+        throw err;
+      } finally {
+        dbSpan.end();
+      }
+    });
+    return c.json(rows);
   } catch (err) {
     log.error({ err }, "GET /api/dashboards failed");
     return c.json({ error: (err as Error).message }, 500);
@@ -153,13 +232,29 @@ const DashboardCreateSchema = z.object({
 });
 
 app.post("/api/dashboards", async (c) => {
+  trace.getActiveSpan()?.updateName("POST /api/dashboards");
   try {
     const body = DashboardCreateSchema.parse(await c.req.json());
-    const result = await pgPool.query(
-      "INSERT INTO dashboards (name, config) VALUES ($1, $2) RETURNING *",
-      [body.name, JSON.stringify(body.config)],
-    );
-    return c.json(result.rows[0]);
+    const row = await tracer.startActiveSpan("pg.dashboards.insert", async (dbSpan) => {
+      try {
+        const result = await pgPool.query(
+          "INSERT INTO dashboards (name, config) VALUES ($1, $2) RETURNING *",
+          [body.name, JSON.stringify(body.config)],
+        );
+        dbSpan.setAttribute("data_size", result.rows.length);
+        if (result.rows[0] != null) {
+          dbSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+        return result.rows[0];
+      } catch (err) {
+        dbSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        dbSpan.recordException(err as Error);
+        throw err;
+      } finally {
+        dbSpan.end();
+      }
+    });
+    return c.json(row);
   } catch (err) {
     log.error({ err }, "POST /api/dashboards failed");
     return c.json({ error: (err as Error).message }, 500);
@@ -168,9 +263,25 @@ app.post("/api/dashboards", async (c) => {
 
 // Redis cache
 app.get("/api/cache/:key", async (c) => {
+  trace.getActiveSpan()?.updateName("GET /api/cache/:key");
   try {
     const key = c.req.param("key");
-    const val = await redis.get(key);
+    const val = await tracer.startActiveSpan("redis.cache.get", async (dbSpan) => {
+      try {
+        const result = await redis.get(key);
+        dbSpan.setAttribute("data_size", result != null ? 1 : 0);
+        if (result != null) {
+          dbSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+        return result;
+      } catch (err) {
+        dbSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+        dbSpan.recordException(err as Error);
+        throw err;
+      } finally {
+        dbSpan.end();
+      }
+    });
     return c.json({ key, value: val ? JSON.parse(val) : null });
   } catch (err) {
     log.error({ err }, "GET /api/cache/:key failed");
