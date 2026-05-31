@@ -5,8 +5,14 @@ dependencies:
 - name: tempo
   repository: https://grafana-community.github.io/helm-charts
   version: 2.1.2
-- name: alloy
+- name: loki
   repository: https://grafana.github.io/helm-charts
-  version: 1.8.1
-digest: sha256:8809fa339b5adeb6758c77e43df030f2a257762e46d5aad9c809fa33115447ff
-generated: "2026-05-25T21:47:30.931940133+08:00"
+  version: 6.55.0
+- name: mimir-distributed
+  repository: https://grafana.github.io/helm-charts
+  version: 6.0.6
+- name: traefik
+  repository: https://helm.traefik.io/traefik
+  version: 35.0.0
+digest: sha256:9d1a78515a58dd3edeab39593a5a503ed44a759011b077fba1006c82b5466d49
+generated: "2026-05-31T14:08:06.396253768+08:00"

@@ -1,0 +1,237 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-site-detail
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  site-detail.json: |
+    {
+      "title": "Site Detail",
+      "uid": "site-detail",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "DOMAIN",
+            "label": "Domain",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "mimir" },
+            "query": { "query": "label_values(container_last_seen, DOMAIN)", "refId": "StandardVariableQuery" },
+            "refresh": 2,
+            "sort": 1,
+            "multi": false,
+            "includeAll": false,
+            "current": {}
+          },
+          {
+            "name": "STAGE",
+            "label": "Stage",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "mimir" },
+            "query": { "query": "label_values(container_last_seen{DOMAIN=\"$DOMAIN\"}, STAGE)", "refId": "StandardVariableQuery" },
+            "refresh": 2,
+            "sort": 1,
+            "multi": false,
+            "includeAll": false,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Container Status",
+          "description": "Running containers (absent = stopped)",
+          "type": "stat",
+          "gridPos": { "x": 0, "y": 0, "w": 24, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "group by (container_label_com_docker_compose_service) (container_last_seen{name!=\"\", DOMAIN=\"$DOMAIN\", STAGE=\"$STAGE\"})",
+              "legendFormat": "{{ "{{" }}container_label_com_docker_compose_service{{ "}}" }}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                { "type": "value", "options": { "1": { "text": "Running", "color": "green" } } }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null }
+                ]
+              },
+              "color": { "mode": "thresholds" }
+            }
+          },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "orientation": "auto",
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "title": "CPU Usage (%)",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "rate(container_cpu_usage_seconds_total{name!=\"\", DOMAIN=\"$DOMAIN\", STAGE=\"$STAGE\"}[1m]) * 100",
+              "legendFormat": "{{ "{{" }}container_label_com_docker_compose_service{{ "}}" }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            }
+          },
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          }
+        },
+        {
+          "id": 3,
+          "title": "Memory Usage (%)",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "container_memory_usage_bytes{name!=\"\", DOMAIN=\"$DOMAIN\", STAGE=\"$STAGE\"} / container_spec_memory_limit_bytes{name!=\"\", DOMAIN=\"$DOMAIN\", STAGE=\"$STAGE\"} * 100",
+              "legendFormat": "{{ "{{" }}container_label_com_docker_compose_service{{ "}}" }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            }
+          },
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom" }
+          }
+        },
+        {
+          "id": 4,
+          "title": "OOM Events",
+          "description": "Container out-of-memory kill events (proxy for critical restarts)",
+          "type": "stat",
+          "gridPos": { "x": 0, "y": 13, "w": 24, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "container_oom_events_total{name!=\"\", DOMAIN=\"$DOMAIN\", STAGE=\"$STAGE\"}",
+              "legendFormat": "{{ "{{" }}container_label_com_docker_compose_service{{ "}}" }}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "red", "value": 5 }
+                ]
+              },
+              "color": { "mode": "thresholds" }
+            }
+          },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "background",
+            "graphMode": "none",
+            "orientation": "auto"
+          }
+        },
+        {
+          "id": 5,
+          "title": "MongoDB Connections",
+          "type": "stat",
+          "gridPos": { "x": 0, "y": 17, "w": 8, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "mongodb_connections{DOMAIN=\"$DOMAIN\", STAGE=\"$STAGE\", state=\"current\"}",
+              "legendFormat": "MongoDB",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "short" }
+          },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "value",
+            "graphMode": "none"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Postgres Active Connections",
+          "type": "stat",
+          "gridPos": { "x": 8, "y": 17, "w": 8, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "pg_stat_activity_count{DOMAIN=\"$DOMAIN\", STAGE=\"$STAGE\"}",
+              "legendFormat": "Postgres",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "short" }
+          },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "value",
+            "graphMode": "none"
+          }
+        },
+        {
+          "id": 7,
+          "title": "Redis Memory Used",
+          "type": "stat",
+          "gridPos": { "x": 16, "y": 17, "w": 8, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "mimir" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "redis_memory_used_bytes{DOMAIN=\"$DOMAIN\", STAGE=\"$STAGE\"}",
+              "legendFormat": "Redis",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "bytes" }
+          },
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "colorMode": "value",
+            "graphMode": "none"
+          }
+        }
+      ]
+    }

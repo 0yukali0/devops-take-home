@@ -1,20 +1,54 @@
 .PHONY: image
-VERSION ?= dev
-VOLUME  ?= /tmp
+VERSION  ?= dev
+VOLUME   ?= /tmp
+INSTANCE ?= 1
+
+ifeq ($(INSTANCE),1)
+  COMPOSE     = INSTANCE=$(INSTANCE) BACKEND_NET=backend_default INSTANCE_SUFFIX= docker compose
+  BACKEND_NET = backend_default
+  INST_SUFFIX =
+  SERVICES    =
+else
+  COMPOSE     = INSTANCE=$(INSTANCE) BACKEND_NET=backend-$(INSTANCE) INSTANCE_SUFFIX=-$(INSTANCE) docker compose -p backend-$(INSTANCE)
+  BACKEND_NET = backend-$(INSTANCE)
+  INST_SUFFIX = -$(INSTANCE)
+  SERVICES    = app collector mongo postgres redis alloy cadvisor
+endif
+
 image:
 	docker build -t backend:$(VERSION) .
 
+.PHONY: ensure-traefik-net
+ensure-traefik-net:
+	docker network create traefik_net 2>/dev/null || true
+
 .PHONY: dev-start
-dev-start: dev-stop image
+dev-start: ensure-traefik-net dev-stop image
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	VPATH=$${VOLUME_PATH:-$(VOLUME)}; \
-	mkdir -p "$$VPATH/mongo-data" "$$VPATH/postgres-data" "$$VPATH/redis-data"
-	docker compose up -d
-	docker compose exec app node dist/seed.js
+	mkdir -p "$$VPATH/mongo-data$(INST_SUFFIX)" \
+	         "$$VPATH/postgres-data$(INST_SUFFIX)" \
+	         "$$VPATH/redis-data$(INST_SUFFIX)"
+	$(COMPOSE) up -d $(SERVICES)
+	$(COMPOSE) exec app node dist/seed.js
 
 .PHONY: dev-stop
 dev-stop:
-	docker compose down
+	$(COMPOSE) down
+
+.PHONY: dev-obs-start
+dev-obs-start:
+	$(MAKE) dev-start INSTANCE=1
+	$(MAKE) dev-start INSTANCE=2
+	$(MAKE) dev-start INSTANCE=3
+
+.PHONY: dev-obs-stop
+dev-obs-stop:
+	@for i in 2 3 4 5; do \
+	    INSTANCE=$$i BACKEND_NET=backend-$$i INSTANCE_SUFFIX=-$$i \
+	    docker compose -p backend-$$i down 2>/dev/null || true; \
+	done
+	docker compose down 2>/dev/null || true
 
 .PHONY: deploy
 deploy:
@@ -62,7 +96,7 @@ e2e-test:
 # idempotent — deploy.sh must complete successfully and the app must be
 # healthy at the end.
 .PHONY: migration-test
-migration-test:
+migration-test: ensure-traefik-net
 	@[ -f .env ] || { echo "No .env found — copying from .env.example"; cp .env.example .env; }
 	@echo "=== Migration + deploy integration test ==="
 	@set -e; \

@@ -25,7 +25,7 @@ RUN --mount=type=bind,target=package.json,src=package.json \
 FROM base AS runner
 WORKDIR /app
 
-ENV NODE_OPTIONS="--dns-result-order=ipv4first"
+ENV NODE_OPTIONS="--dns-result-order=ipv4first --require ./dist/instrumentation.js"
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 edge

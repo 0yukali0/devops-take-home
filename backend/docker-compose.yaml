@@ -10,27 +10,36 @@ services:
       - ./traefik/dynamic:/etc/traefik/dynamic
     networks:
       - backend
+      - traefik_net
     restart: unless-stopped
     mem_limit: 256m
     memswap_limit: 256m
 
   app:
     image: backend:${VERSION:-dev}
-    container_name: app
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app-${INSTANCE:-1}.rule=Host(`instance-${INSTANCE:-1}.localhost`)"
+      - "traefik.http.routers.app-${INSTANCE:-1}.entrypoints=web"
+      - "traefik.http.services.app-${INSTANCE:-1}.loadbalancer.server.port=3000"
+      - "traefik.docker.network=traefik_net"
     env_file:
       - .env
     environment:
       - MONGO_URI=${MONGO_URI}
       - PG_URI=postgresql://postgres:postgres@postgres:5432/ems
       - REDIS_URL=redis://redis:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
+      - OTEL_SERVICE_NAME=ems-api
     depends_on:
       - mongo
       - postgres
       - redis
     networks:
       - backend
+      - traefik_net
     restart: unless-stopped
     mem_limit: 512m
     memswap_limit: 512m
@@ -43,6 +52,8 @@ services:
     environment:
       - MONGO_URI=${MONGO_URI}
       - COLLECT_INTERVAL_MS=10000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
+      - OTEL_SERVICE_NAME=ems-collector
     depends_on:
       - mongo
     networks:
@@ -62,7 +73,7 @@ services:
       - MONGO_APP_USER=${MONGO_APP_USER}
       - MONGO_APP_PASS=${MONGO_APP_PASS}
     volumes:
-      - ${VOLUME_PATH:-/tmp}/mongo-data:/data/db
+      - ${VOLUME_PATH:-/tmp}/mongo-data${INSTANCE_SUFFIX:-}:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d:ro
     networks:
       - backend
@@ -87,24 +98,81 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=ems
     volumes:
-      - ${VOLUME_PATH:-/tmp}/postgres-data:/var/lib/postgresql/data
+      - ${VOLUME_PATH:-/tmp}/postgres-data${INSTANCE_SUFFIX:-}:/var/lib/postgresql/data
     networks:
       - backend
     restart: unless-stopped
     mem_limit: 1g
     memswap_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
-      - ${VOLUME_PATH:-/tmp}/redis-data:/data
+      - ${VOLUME_PATH:-/tmp}/redis-data${INSTANCE_SUFFIX:-}:/data
     networks:
       - backend
     restart: unless-stopped
     mem_limit: 512m
     memswap_limit: 512m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    command:
+      - "--docker_only=true"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - backend
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+
+  alloy:
+    image: grafana/alloy:latest
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    env_file:
+      - .env
+    environment:
+      - ALLOY_DOMAIN=${ALLOY_DOMAIN}-${INSTANCE:-1}
+      - ALLOY_TENANT_ID=${ALLOY_DOMAIN}-${ALLOY_STAGE}-${INSTANCE:-1}
+      - ALLOY_PROJECT=backend${INSTANCE_SUFFIX:-}
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - backend
+    depends_on:
+      mongo:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
 
 networks:
   backend:
-    name: backend_default
+    name: ${BACKEND_NET:-backend_default}
+  traefik_net:
+    name: traefik_net
+    external: true

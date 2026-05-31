@@ -3,18 +3,32 @@ kube-prometheus-stack:
     enabled: true
 
   prometheus:
-    enabled: true
-    prometheusSpec:
-      storageSpec: {}
+    enabled: false
 
   grafana:
     enabled: true
     persistence:
       enabled: false
+    sidecar:
+      dashboards:
+        enabled: true
+      datasources:
+        defaultDatasourceEnabled: false
     additionalDataSources:
+      - name: Mimir
+        uid: mimir
+        type: prometheus
+        url: http://metric-dashboard-mimir-query-frontend.monitoring.svc.cluster.local:8080/prometheus
+        access: proxy
+        isDefault: true
+      - name: Loki
+        uid: loki
+        type: loki
+        url: http://metric-dashboard-loki.monitoring.svc.cluster.local:3100
+        access: proxy
       - name: Tempo
+        uid: tempo
         type: tempo
-        # URL uses the Helm release name (metric-dashboard) + subchart name (tempo)
         url: http://metric-dashboard-tempo.monitoring.svc.cluster.local:3200
         access: proxy
         jsonData:
@@ -44,42 +58,121 @@ tempo:
   persistence:
     enabled: false
 
-# Grafana Alloy — OTLP trace collector pipeline
-# NodePort 30317 (gRPC) and 30318 (HTTP) are exposed via charts/templates/alloy-otlp-nodeport.yaml
-# Override cluster label at install time: --set alloy.clusterName=<env>
-alloy:
-  clusterName: "default"
-  alloy:
-    configMap:
-      content: |
-        otelcol.receiver.otlp "default" {
-          grpc {
-            endpoint = "0.0.0.0:4317"
-          }
-          http {
-            endpoint = "0.0.0.0:4318"
-          }
-          output {
-            traces = [otelcol.processor.transform.add_cluster.input]
-          }
-        }
+# Loki log aggregation — single-binary mode
+loki:
+  deploymentMode: SingleBinary
+  loki:
+    useTestSchema: true
+    commonConfig:
+      replication_factor: 1
+    compactor:
+      retention_enabled: true
+      delete_request_store: filesystem
+    limits_config:
+      retention_period: 24h
+    storage:
+      type: filesystem
+    auth_enabled: false
+  singleBinary:
+    replicas: 1
+  persistence:
+    enabled: false
+  # Disable components not needed in single-binary mode
+  backend:
+    replicas: 0
+  read:
+    replicas: 0
+  write:
+    replicas: 0
 
-        otelcol.processor.transform "add_cluster" {
-          error_mode = "ignore"
-          trace_statements {
-            context    = "resource"
-            statements = ["set(attributes[\"cluster\"], \"{{ .Values.clusterName }}\")"]
-          }
-          output {
-            traces = [otelcol.exporter.otlp.tempo.input]
-          }
-        }
+# Mimir distributed metrics backend — single-replica monolithic mode
+mimir-distributed:
+  minio:
+    enabled: false
+  mimir:
+    structuredConfig:
+      multitenancy_enabled: false
+      common:
+        storage:
+          backend: filesystem
+          filesystem:
+            dir: /data/mimir
+      blocks_storage:
+        backend: filesystem
+        filesystem:
+          dir: /data/mimir/blocks
+      compactor:
+        data_dir: /data/mimir/compactor
+      limits:
+        compactor_blocks_retention_period: 24h
+      ingester:
+        ring:
+          replication_factor: 1
+      memberlist:
+        join_members:
+          - metric-dashboard-mimir-gossip-ring
+  ingester:
+    replicas: 1
+    zoneAwareReplication:
+      enabled: false
+  querier:
+    replicas: 1
+  query_frontend:
+    replicas: 1
+  query_scheduler:
+    replicas: 1
+  store_gateway:
+    replicas: 1
+    zoneAwareReplication:
+      enabled: false
+  compactor:
+    replicas: 1
+  distributor:
+    replicas: 1
+  ruler:
+    enabled: false
+  alertmanager:
+    enabled: false
 
-        otelcol.exporter.otlp "tempo" {
-          client {
-            endpoint = "{{ .Release.Name }}-tempo.{{ .Release.Namespace }}.svc.cluster.local:4317"
-            tls {
-              insecure = true
-            }
-          }
-        }
+# Traefik — K8s telemetry gateway (HTTP path routing + TCP passthrough for gRPC)
+traefik:
+  deployment:
+    kind: DaemonSet
+
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      effect: NoSchedule
+
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+
+  service:
+    type: NodePort
+
+  ports:
+    web:
+      port: 8000
+      expose:
+        default: true
+      exposedPort: 80
+      nodePort: 30080
+    websecure:
+      expose:
+        default: false
+    tempo-grpc:
+      port: 4317
+      expose:
+        default: true
+      exposedPort: 4317
+      nodePort: 30317
+      protocol: TCP
+
+  ingressRoute:
+    dashboard:
+      enabled: false
+
+  providers:
+    kubernetesCRD:
+      enabled: true
+    kubernetesIngress:
+      enabled: false
