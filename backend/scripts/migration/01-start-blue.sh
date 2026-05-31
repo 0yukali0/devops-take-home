@@ -16,6 +16,9 @@ echo "--- Create bind-mount directories for volumes ---"
 VPATH="${VOLUME_PATH:-/tmp}"
 mkdir -p "${VPATH}/mongo-data" "${VPATH}/postgres-data" "${VPATH}/redis-data"
 
+echo "--- Ensure shared traefik_net network exists ---"
+docker network create traefik_net 2>/dev/null || true
+
 echo "--- Start infrastructure (traefik + databases) ---"
 VERSION=$BLUE docker compose up -d --wait traefik mongo postgres redis
 
