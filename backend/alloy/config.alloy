@@ -93,7 +93,10 @@ prometheus.relabel "add_labels" {
 
 prometheus.remote_write "prometheus" {
 	endpoint {
-		url = "http://" + env("ALLOY_REMOTE_HOST") + "/api/v1/write"
+		url = "http://" + env("ALLOY_REMOTE_HOST") + ":30080/api/v1/write"
+		headers = {
+			"X-Scope-OrgID" = env("ALLOY_TENANT_ID"),
+		}
 	}
 }
 
@@ -123,6 +126,7 @@ loki.process "add_labels" {
 
 loki.write "loki" {
 	endpoint {
-		url = "http://" + env("ALLOY_REMOTE_HOST") + "/loki/api/v1/push"
+		url       = "http://" + env("ALLOY_REMOTE_HOST") + ":30080/loki/api/v1/push"
+		tenant_id = env("ALLOY_TENANT_ID")
 	}
 }

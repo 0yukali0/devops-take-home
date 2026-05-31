@@ -127,3 +127,46 @@ mimir-distributed:
     enabled: false
   alertmanager:
     enabled: false
+
+# Traefik — K8s telemetry gateway (HTTP path routing + TCP passthrough for gRPC)
+traefik:
+  deployment:
+    kind: DaemonSet
+
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      effect: NoSchedule
+
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+
+  service:
+    type: NodePort
+
+  ports:
+    web:
+      port: 8000
+      expose:
+        default: true
+      exposedPort: 80
+      nodePort: 30080
+    websecure:
+      expose:
+        default: false
+    tempo-grpc:
+      port: 4317
+      expose:
+        default: true
+      exposedPort: 4317
+      nodePort: 30317
+      protocol: TCP
+
+  ingressRoute:
+    dashboard:
+      enabled: false
+
+  providers:
+    kubernetesCRD:
+      enabled: true
+    kubernetesIngress:
+      enabled: false

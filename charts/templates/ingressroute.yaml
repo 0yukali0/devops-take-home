@@ -1,0 +1,22 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: telemetry-http
+  namespace: monitoring
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/api/v1/write`)
+      kind: Rule
+      middlewares:
+        - name: mimir-rewrite
+      services:
+        - name: metric-dashboard-mimir-distributor
+          port: 8080
+
+    - match: PathPrefix(`/loki/api/v1/push`)
+      kind: Rule
+      services:
+        - name: metric-dashboard-loki
+          port: 3100

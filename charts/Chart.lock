@@ -11,5 +11,8 @@ dependencies:
 - name: mimir-distributed
   repository: https://grafana.github.io/helm-charts
   version: 6.0.6
-digest: sha256:a0b22157ca6ee84fa7fd08d6eb4eb4b3b4ae888dde732256721ba8732c17c860
-generated: "2026-05-31T00:26:44.058075578+08:00"
+- name: traefik
+  repository: https://helm.traefik.io/traefik
+  version: 35.0.0
+digest: sha256:9d1a78515a58dd3edeab39593a5a503ed44a759011b077fba1006c82b5466d49
+generated: "2026-05-31T14:08:06.396253768+08:00"
